@@ -3,6 +3,7 @@ using BotCripto.Models;
 namespace BotCripto.Strategies;
 
 // Breakout long su forza relativa (candele chiuse, timeframe configurato, tipicamente 1d):
+//  0) regime: BTC (benchmark) sopra la sua EMA50 e con EMA50 in salita
 //  1) trend rialzista: Close > EMA50 e EMA20 > EMA50 con EMA50 in salita
 //  2) forza relativa: la linea RS (Close asset / Close benchmark) è sopra la sua media a RsSmaPeriod
 //     e ha toccato un nuovo massimo a RsHighLookback candele nelle ultime RsRecentBars candele
@@ -16,16 +17,18 @@ public class RelativeStrengthBreakoutStrategy
 
     private const int FastEma = 20;
     private const int SlowEma = 50;
-    private const int BreakoutLookback = 20;     // massimo delle ultime N candele da superare
+    private const int BreakoutLookback = 10;     // massimo delle ultime N candele da superare
     private const int RsSmaPeriod = 20;
-    private const int RsHighLookback = 60;       // la RS deve essere al massimo di questa finestra...
-    private const int RsRecentBars = 5;          // ...in almeno una delle ultime candele
+    private const int RsHighLookback = 30;       // la RS deve essere al massimo di questa finestra...
+    private const int RsRecentBars = 10;         // ...in almeno una delle ultime candele
     private const int VolumePeriod = 20;
-    private const decimal VolumeFactor = 1.2m;   // volume breakout >= 1.2 × media
+    private const decimal VolumeFactor = 1.0m;   // volume breakout >= media
     private const int AtrPeriod = 14;
-    private const decimal AtrStopBuffer = 0.5m;  // buffer sotto il minimo del range, in ATR
+    private const decimal AtrStopBuffer = 2.5m;  // buffer sotto il minimo del range, in ATR
     private const decimal RsiMax = 80m;
     private const decimal MaxStopPercent = 0.15m; // stop più largo del 15% = setup scartato
+    private const int RegimeEma = 50;          // BTC deve stare sopra la sua EMA, in salita
+    private const decimal MinClosePosition = 0.8m; // la chiusura deve stare nel 20% superiore del range della candela
     public const int MinCandles = SlowEma + 20;
 
     public AnalysisResult Analyze(string symbol, List<Candle> candles, List<Candle>? benchmark = null)
@@ -74,6 +77,14 @@ public class RelativeStrengthBreakoutStrategy
             return result;
         }
 
+        // Regime di mercato: BTC sopra la sua EMA e con EMA in salita
+        var benchEma = TechnicalIndicators.CalculateEMA(benchmark.Select(b => b.Close).ToList(), RegimeEma);
+        if (benchEma.Count < 6 || !(benchmark[^1].Close > benchEma[^1] && benchEma[^1] > benchEma[^6]))
+        {
+            result.Rejection = RejectionReason.TrendNotAligned;
+            return result;
+        }
+
         // 2) Forza relativa: sopra la sua media e a nuovi massimi di recente
         var rsNow = rs[^1];
         var rsSma = rs.Skip(rs.Count - RsSmaPeriod).Average();
@@ -95,7 +106,9 @@ public class RelativeStrengthBreakoutStrategy
         var range = candles.Skip(candles.Count - 1 - BreakoutLookback).Take(BreakoutLookback).ToList();
         var rangeHigh = range.Max(c => c.High);
         var rangeLow = range.Min(c => c.Low);
-        if (!(last.Close > rangeHigh && last.Close > last.Open))
+        var candleRange = last.High - last.Low;
+        if (!(last.Close > rangeHigh && last.Close > last.Open) ||
+            (candleRange > 0 && (last.Close - last.Low) / candleRange < MinClosePosition))
         {
             result.Rejection = RejectionReason.NoBreakout;
             return result;

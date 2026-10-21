@@ -78,7 +78,7 @@ async Task RunLiveAsync()
 
     Console.WriteLine("Strategia Principale Attiva:");
     Console.WriteLine("  ⭐ Breakout trading su forza relativa (vs BTC)");
-    Console.WriteLine($"     • Configurazione: Swing trading long su candele {Timeframe}");
+    Console.WriteLine($"     • Configurazione: Breakout su forza relativa (long) su candele {Timeframe}");
     Console.WriteLine("     • Filtri: Volume, Candle Body, RSI, Breakout Confirmation");
     Console.WriteLine("     • Modalità: paper trading (segnali e trade simulati, nessun ordine reale)");
     Console.WriteLine("\nImpostazioni:");
