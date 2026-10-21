@@ -27,16 +27,30 @@ public class BacktestService
         return candles.GetRange(start, idx + 1 - start);
     }
 
+    private const string BenchmarkSymbol = "BTC";
+
+    // Indice dell'ultima candela del benchmark con Time <= time (le candele sono ordinate)
+    private static int BenchmarkIndex(List<Candle> benchmark, DateTime time)
+    {
+        int lo = 0, hi = benchmark.Count - 1, found = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (benchmark[mid].Time <= time) { found = mid; lo = mid + 1; } else hi = mid - 1;
+        }
+        return Math.Max(found, 0);
+    }
+
     private readonly CryptoDataService _dataService;
     private readonly RiskManager _riskManager;
-    private readonly SwingTradingShortStrategy _strategy;
+    private readonly RelativeStrengthBreakoutStrategy _strategy;
     private readonly decimal _initialCapital;
 
     public BacktestService(decimal initialCapital, decimal rewardRiskRatio = 2.0m, decimal capitalPerTrade = decimal.MaxValue)
     {
         _initialCapital = initialCapital;
         _dataService = new CryptoDataService();
-        _strategy = new SwingTradingShortStrategy();
+        _strategy = new RelativeStrengthBreakoutStrategy();
         _riskManager = new RiskManager(
             initialCapital,
             riskPercentPerTrade: 0.02m,
@@ -51,7 +65,7 @@ public class BacktestService
     // Imposta sulle plusvalenze crypto: si applica al saldo netto del periodo (le perdite compensano i guadagni)
     private const decimal TaxRate = 0.26m;
 
-    // Esegue davvero la strategia EMA Ribbon + RiskManager candela per candela su dati storici reali
+    // Esegue davvero la strategia Breakout su forza relativa + RiskManager candela per candela su dati storici reali
     // (Crypto.com/Bybit), aprendo e chiudendo posizioni quando stop loss o target vengono toccati.
     public async Task<BacktestResult> RunBacktestAsync(
         List<string> symbols,
@@ -92,6 +106,9 @@ public class BacktestService
         //    su tutti i simboli insieme, per sapere in ogni momento quanto capitale è già impegnato.
         var candlesBySymbol = new Dictionary<string, List<Candle>>();
         var indexBySymbol = new Dictionary<string, Dictionary<DateTime, int>>();
+        // Il benchmark (BTC) serve alla forza relativa anche se non è tra i simboli da testare
+        var benchmarkCandles = (await _dataService.GetHistoricalCandlesAsync(BenchmarkSymbol, timeframe, historyFrom, endDate))
+            .OrderBy(c => c.Time).ToList();
         foreach (var symbol in symbols)
         {
             try
@@ -171,7 +188,7 @@ public class BacktestService
                     if (openPositions.ContainsKey(symbol) || !indexBySymbol[symbol].TryGetValue(time, out var idx) || idx < WarmupCandles)
                         continue;
 
-                    var analysis = _strategy.Analyze(symbol, Window(candles, idx));
+                    var analysis = _strategy.Analyze(symbol, Window(candles, idx), Window(benchmarkCandles, BenchmarkIndex(benchmarkCandles, candles[idx].Time)));
                     if (analysis.IsSignal)
                         candidates.Add((symbol, candles[idx], analysis));
                 }

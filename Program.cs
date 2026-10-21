@@ -77,7 +77,7 @@ async Task RunLiveAsync()
     var scheduler = new BotSchedulerService(InitialCapital, Timeframe, RewardRiskRatio, CapitalPerTrade);
 
     Console.WriteLine("Strategia Principale Attiva:");
-    Console.WriteLine("  ⭐ EMA Ribbon Trend Following + Candle Confirmation");
+    Console.WriteLine("  ⭐ Breakout trading su forza relativa (vs BTC)");
     Console.WriteLine($"     • Configurazione: Swing trading long su candele {Timeframe}");
     Console.WriteLine("     • Filtri: Volume, Candle Body, RSI, Breakout Confirmation");
     Console.WriteLine("     • Modalità: paper trading (segnali e trade simulati, nessun ordine reale)");

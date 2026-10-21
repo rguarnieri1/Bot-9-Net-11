@@ -8,14 +8,15 @@ public class BotSchedulerService
 {
     private const int CandlesPerAnalysis = 300;  // stessa finestra del backtest
     private const int MaxConcurrentFetches = 4;
-    private const int MinCandlesForAnalysis = SwingTradingShortStrategy.MinCandles; // minimo richiesto dalla strategia
+    private const string BenchmarkSymbol = "BTC";
+    private const int MinCandlesForAnalysis = RelativeStrengthBreakoutStrategy.MinCandles; // minimo richiesto dalla strategia
     // Un segnale viene valutato solo entro questo tempo dalla chiusura della candela (niente ingressi in ritardo)
     private static readonly TimeSpan SignalFreshness = TimeSpan.FromMinutes(30);
 
     private readonly CryptoDataService _dataService;
     private readonly NotificationService _notificationService;
     private readonly ReportingService _reportingService;
-    private readonly SwingTradingShortStrategy _emaRibbonStrategy;
+    private readonly RelativeStrengthBreakoutStrategy _strategy;
     private readonly RiskManager _riskManager;
     private Timer? _marketCheckTimer;
     private Timer? _weeklyReportTimer;
@@ -43,7 +44,7 @@ public class BotSchedulerService
         _dataService = new CryptoDataService();
         _notificationService = new NotificationService();
         _reportingService = new ReportingService();
-        _emaRibbonStrategy = new SwingTradingShortStrategy();
+        _strategy = new RelativeStrengthBreakoutStrategy();
         _riskManager = new RiskManager(
             initialCapital,
             riskPercentPerTrade: 0.02m,      // 2% rischio per trade
@@ -195,6 +196,15 @@ public class BotSchedulerService
                 try { await Task.WhenAll(toFetch); } catch { /* gestito per simbolo più sotto */ }
                 var candidates = new List<(Cryptocurrency crypto, AnalysisResult analysis, List<Candle> candles)>();
 
+                // Benchmark della forza relativa: se non disponibile non si può valutare alcun segnale
+                List<Candle> benchmarkCandles;
+                try { benchmarkCandles = ClosedCandles(await GetCandlesCachedAsync(BenchmarkSymbol), now); }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"   ⚠️  Benchmark {BenchmarkSymbol} non disponibile: {ex.Message}");
+                    benchmarkCandles = new List<Candle>();
+                }
+
                 foreach (var crypto in cryptos)
                 {
                     try
@@ -225,13 +235,13 @@ public class BotSchedulerService
                             continue;
                         }
 
-                        // ✅ STRATEGIA PRINCIPALE: Swing Trading Long
-                        var emaRibbonResult = _emaRibbonStrategy.Analyze(crypto.Symbol, candles);
+                        // STRATEGIA: Breakout su forza relativa (benchmark BTC)
+                        var signalResult = _strategy.Analyze(crypto.Symbol, candles, benchmarkCandles);
 
-                        if (emaRibbonResult.IsSignal)
-                            candidates.Add((crypto, emaRibbonResult, candles));
+                        if (signalResult.IsSignal)
+                            candidates.Add((crypto, signalResult, candles));
                         else
-                            CountRejection(RejectionLabel(emaRibbonResult.Rejection));
+                            CountRejection(RejectionLabel(signalResult.Rejection));
 
                     }
                     catch (Exception ex)
@@ -241,9 +251,9 @@ public class BotSchedulerService
                 }
 
                 // Dal segnale più forte al più debole: quando il capitale non basta per tutti entrano prima i migliori
-                foreach (var (crypto, emaRibbonResult, candles) in candidates.OrderByDescending(c => c.analysis.Indicators.GetValueOrDefault("SignalStrength")))
+                foreach (var (crypto, signalResult, candles) in candidates.OrderByDescending(c => c.analysis.Indicators.GetValueOrDefault("SignalStrength")))
                 {
-                    var isLong = emaRibbonResult.Signal.Contains("BUY");
+                    var isLong = signalResult.Signal.Contains("BUY");
                     // Ingresso alla chiusura della candela del segnale (come nel backtest), non al prezzo live:
                     // lo stop della strategia è calcolato su quella candela e i controlli stop/target partono dalla successiva.
                     var entryPrice = candles.Last().Close;
@@ -254,7 +264,7 @@ public class BotSchedulerService
                         openTrades,
                         _currentAccountValue,
                         isLong,
-                        emaRibbonResult.Indicators.GetValueOrDefault("StopLoss")
+                        signalResult.Indicators.GetValueOrDefault("StopLoss")
                     );
 
                     if (!positionResult.IsValid)
@@ -273,18 +283,18 @@ public class BotSchedulerService
                         continue;
                     }
 
-                    emaRibbonResult.Indicators["StopLoss"] = positionResult.StopLossPrice;
-                    emaRibbonResult.Indicators["Target"] = positionResult.TargetPrice;
-                    emaRibbonResult.Indicators["PositionSize"] = positionResult.PositionSize;
-                    emaRibbonResult.Indicators["RiskRewardRatio"] = positionResult.RiskRewardRatio;
-                    emaRibbonResult.Indicators["Leverage"] = positionResult.LeverageRatio;
-                    emaRibbonResult.Indicators["ExpectedProfit"] = positionResult.ExpectedProfit;
+                    signalResult.Indicators["StopLoss"] = positionResult.StopLossPrice;
+                    signalResult.Indicators["Target"] = positionResult.TargetPrice;
+                    signalResult.Indicators["PositionSize"] = positionResult.PositionSize;
+                    signalResult.Indicators["RiskRewardRatio"] = positionResult.RiskRewardRatio;
+                    signalResult.Indicators["Leverage"] = positionResult.LeverageRatio;
+                    signalResult.Indicators["ExpectedProfit"] = positionResult.ExpectedProfit;
 
-                    await _notificationService.SendNotificationAsync(emaRibbonResult);
+                    await _notificationService.SendNotificationAsync(signalResult);
                     openTrades.Add(_reportingService.RecordTrade(
                         crypto.Symbol,
                         entryPrice,
-                        "Swing Trading Long",
+                        RelativeStrengthBreakoutStrategy.Name,
                         isLong,
                         positionResult.StopLossPrice,
                         positionResult.TargetPrice,
@@ -403,9 +413,9 @@ public class BotSchedulerService
         RejectionReason.NoVolumeData => "Strategia: volume assente",
         RejectionReason.VolumeInsufficient => "Strategia: volume insufficiente",
         RejectionReason.CandleNotStrong => "Strategia: candela non abbastanza forte",
-        RejectionReason.PriceVsEma10 => "Strategia: prezzo non conferma vs EMA10",
-        RejectionReason.RsiExtreme => "Strategia: candela/RSI non confermano la ripartenza",
-        RejectionReason.NoBreakout => "Strategia: nessun ritracciamento confermato su EMA20",
+        RejectionReason.PriceVsEma10 => "Strategia: forza relativa non confermata vs BTC",
+        RejectionReason.RsiExtreme => "Strategia: RSI ipercomprato",
+        RejectionReason.NoBreakout => "Strategia: nessun breakout del massimo recente",
         RejectionReason.MaxConcurrentTrades => "Risk Manager: troppi trade aperti simultaneamente",
         RejectionReason.ProfitBelowCommissions => "Risk Manager: profitto non copre commissioni",
         RejectionReason.RiskRewardTooLow => "Risk Manager: rapporto rischio/rendimento insufficiente",
