@@ -52,7 +52,7 @@ public class BotSchedulerService
             maxPositionSizePercent: 0.10m,    // Max 10% per trade
             commissionsPercent: 0.25m,        // 0.25% commissioni per lato
             taxRate: 0.26m,                   // 26% tasse
-            maxPositionValue: capitalPerTrade // importo massimo fisso per trade (€)
+            capitalPerTrade: capitalPerTrade // importo fisso per trade (€)
         );
 
         _currentAccountValue = initialCapital;

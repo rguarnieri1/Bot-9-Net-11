@@ -58,7 +58,7 @@ public class BacktestService
             maxPositionSizePercent: 0.10m,
             commissionsPercent: 0.25m,
             taxRate: TaxRate,
-            maxPositionValue: capitalPerTrade
+            capitalPerTrade: capitalPerTrade // importo fisso per trade (€)
         );
     }
 

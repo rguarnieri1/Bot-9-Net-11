@@ -10,7 +10,7 @@ public class RiskManager
     private readonly decimal _riskPerTrade;
     private readonly decimal _minRewardRatio;
     private readonly decimal _maxPositionSizePercent;
-    private readonly decimal _maxPositionValue;
+    private readonly decimal _capitalPerTrade;
     private readonly decimal _commissionsPercent;
     private readonly decimal _taxRate;
 
@@ -21,7 +21,7 @@ public class RiskManager
         decimal maxPositionSizePercent = 0.10m,
         decimal commissionsPercent = 0.10m,
         decimal taxRate = 0.26m,
-        decimal maxPositionValue = decimal.MaxValue)
+        decimal capitalPerTrade = 10m)
     {
         _accountSize = accountSize;
         _riskPerTrade = accountSize * riskPercentPerTrade;
@@ -29,7 +29,7 @@ public class RiskManager
         _maxPositionSizePercent = maxPositionSizePercent;
         _commissionsPercent = commissionsPercent;
         _taxRate = taxRate;
-        _maxPositionValue = maxPositionValue;
+        _capitalPerTrade = capitalPerTrade;
     }
 
     public PositionSizingResult CalculatePosition(
@@ -65,19 +65,9 @@ public class RiskManager
 
         var stopLossPercent = riskPerUnit / entryPrice;
 
-        // 2️⃣ Calcola position size (in unità dell'asset) basato su rischio fisso
-        var positionSize = _riskPerTrade / riskPerUnit;
-
-        // 3️⃣ Valida contro massimale per trade: confronto in € sul valore nozionale
-        // (positionSize è in unità di asset, non in euro - va convertito prima di confrontarlo
-        // con maxPositionValue, altrimenti il cap non scatta quasi mai).
-        // Il tetto è il minore tra la % del capitale e l'importo massimo fisso per trade (in €).
-        var maxPositionValue = Math.Min(currentAccountValue * _maxPositionSizePercent, _maxPositionValue);
-        var positionValue = positionSize * entryPrice;
-        if (positionValue > maxPositionValue)
-        {
-            positionSize = maxPositionValue / entryPrice;
-        }
+        // 2️⃣ Position size a importo fisso: ogni trade investe esattamente _capitalPerTrade (€),
+        // senza tetto massimo. positionSize è in unità dell'asset.
+        var positionSize = _capitalPerTrade / entryPrice;
 
         // 4️⃣ Target a distanza rischio × R:R (2:1 di default), nella direzione del trade
         var profitPerUnit = riskPerUnit * _minRewardRatio;

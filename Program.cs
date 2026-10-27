@@ -13,7 +13,7 @@ var appSettings = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDir
 var tradingSettings = appSettings["TradingSettings"] ?? throw new InvalidOperationException("appsettings.json: sezione TradingSettings mancante");
 var marketSettings = appSettings["MarketMonitoring"] ?? throw new InvalidOperationException("appsettings.json: sezione MarketMonitoring mancante");
 decimal InitialCapital = tradingSettings.Value<decimal?>("InitialCapital") ?? throw new InvalidOperationException("appsettings.json: InitialCapital mancante");
-decimal CapitalPerTrade = tradingSettings.Value<decimal?>("CapitalPerTrade") ?? decimal.MaxValue;
+decimal CapitalPerTrade = tradingSettings.Value<decimal?>("CapitalPerTrade") ?? 10m;
 decimal RewardRiskRatio =tradingSettings.Value<decimal?>("RewardRiskRatio") ?? throw new InvalidOperationException("appsettings.json: RewardRiskRatio mancante");
 string Timeframe = marketSettings.Value<string>("TimeframeForCandlesticks") ?? throw new InvalidOperationException("appsettings.json: TimeframeForCandlesticks mancante");
 
@@ -86,7 +86,7 @@ async Task RunLiveAsync()
     Console.WriteLine("  • Intervallo Monitoraggio: 30 minuti");
     Console.WriteLine("  • Max Crypto: 500");
     Console.WriteLine($"  • Risk per Trade: 2% (€{InitialCapital * 0.02m:F2})");
-    Console.WriteLine($"  • Importo massimo per trade: €{Math.Min(InitialCapital * 0.10m, CapitalPerTrade):F2}");
+    Console.WriteLine($"  • Importo per trade: €{CapitalPerTrade:F2} (fisso, nessun tetto massimo)");
     Console.WriteLine($"  • Take profit: {RewardRiskRatio}x la distanza dello stop");
     Console.WriteLine("  • Report Settimanale: Lunedì 00:00");
     Console.WriteLine("  • Tracking Metriche: Ogni 10 cicli");
