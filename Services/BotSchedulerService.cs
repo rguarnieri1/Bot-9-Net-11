@@ -27,18 +27,17 @@ public class BotSchedulerService
     // così un tick in ritardo/saltato non fa perdere il segnale. La scansione dei simboli avviene una sola volta per candela.
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(5);
 
-    private readonly decimal _initialCapital;
     private readonly string _timeframe;
     private readonly TimeSpan _timeframeSpan;
-    private decimal _currentAccountValue;
+    private decimal _realizedPnl;
     private int _checksPerformed = 0;
     private int _signalsGenerated = 0;
     private int _tradesRecorded = 0;
     private readonly Dictionary<string, int> _cumulativeRejectionCounts = new();
 
-    public BotSchedulerService(decimal initialCapital, string timeframe, decimal rewardRiskRatio, decimal capitalPerTrade = decimal.MaxValue)
+    // Capitale investibile illimitato: nessun importo totale, solo un importo fisso per trade (capitalPerTrade)
+    public BotSchedulerService(string timeframe, decimal rewardRiskRatio, decimal capitalPerTrade)
     {
-        _initialCapital = initialCapital;
         _timeframe = timeframe;
         _timeframeSpan = BacktestService.TimeframeToTimeSpan(timeframe);
         _dataService = new CryptoDataService();
@@ -46,16 +45,11 @@ public class BotSchedulerService
         _reportingService = new ReportingService();
         _strategy = new RelativeStrengthBreakoutStrategy();
         _riskManager = new RiskManager(
-            initialCapital,
-            riskPercentPerTrade: 0.02m,      // 2% rischio per trade
+            positionValue: capitalPerTrade,   // importo fisso per trade (€)
             rewardRiskRatio: rewardRiskRatio, // take profit = R:R × distanza dello stop
-            maxPositionSizePercent: 0.10m,    // Max 10% per trade
             commissionsPercent: 0.25m,        // 0.25% commissioni per lato
-            taxRate: 0.26m,                   // 26% tasse
-            maxPositionValue: capitalPerTrade // importo massimo fisso per trade (€)
+            taxRate: 0.26m                    // 26% tasse
         );
-
-        _currentAccountValue = initialCapital;
     }
 
     public async Task StartAsync()
@@ -153,7 +147,7 @@ public class BotSchedulerService
             // Trade gestiti dal paper trading (quelli registrati prima non hanno stop/target e vengono ignorati)
             var managedTrades = _reportingService.GetAllTrades().Where(t => t.IsPaperManaged).ToList();
             var openTrades = managedTrades.Where(t => t.Status == "Open").ToList();
-            _currentAccountValue = _initialCapital + managedTrades.Where(t => t.Status == "Closed").Sum(t => t.Profit ?? 0);
+            _realizedPnl = managedTrades.Where(t => t.Status == "Closed").Sum(t => t.Profit ?? 0);
 
             int signalsFound = 0;
             int signalsFiltered = 0;
@@ -250,7 +244,7 @@ public class BotSchedulerService
                     }
                 }
 
-                // Dal segnale più forte al più debole: quando il capitale non basta per tutti entrano prima i migliori
+                // Dal segnale più forte al più debole (capitale illimitato: entrano tutti i segnali validi)
                 foreach (var (crypto, signalResult, candles) in candidates.OrderByDescending(c => c.analysis.Indicators.GetValueOrDefault("SignalStrength")))
                 {
                     var isLong = signalResult.Signal.Contains("BUY");
@@ -261,8 +255,6 @@ public class BotSchedulerService
                         crypto.Symbol,
                         entryPrice,
                         CalculateVolatility(candles),
-                        openTrades,
-                        _currentAccountValue,
                         isLong,
                         signalResult.Indicators.GetValueOrDefault("StopLoss")
                     );
@@ -274,20 +266,10 @@ public class BotSchedulerService
                         continue;
                     }
 
-                    // Niente leva: la posizione deve entrare nel capitale non ancora impegnato
-                    var committed = openTrades.Sum(t => t.EntryPrice * t.PositionSize);
-                    if (committed + entryPrice * positionResult.PositionSize > _currentAccountValue)
-                    {
-                        signalsFiltered++;
-                        CountRejection("Capitale già impegnato");
-                        continue;
-                    }
-
                     signalResult.Indicators["StopLoss"] = positionResult.StopLossPrice;
                     signalResult.Indicators["Target"] = positionResult.TargetPrice;
                     signalResult.Indicators["PositionSize"] = positionResult.PositionSize;
                     signalResult.Indicators["RiskRewardRatio"] = positionResult.RiskRewardRatio;
-                    signalResult.Indicators["Leverage"] = positionResult.LeverageRatio;
                     signalResult.Indicators["ExpectedProfit"] = positionResult.ExpectedProfit;
 
                     await _notificationService.SendNotificationAsync(signalResult);
@@ -311,9 +293,9 @@ public class BotSchedulerService
             Console.WriteLine($"\n✅ Ciclo completato:");
             Console.WriteLine($"   • Trade chiusi (stop/target): {tradesClosed}");
             Console.WriteLine($"   • Segnali trovati: {signalsFound}");
-            Console.WriteLine($"   • Segnali filtrati (rischio/capitale): {signalsFiltered}");
+            Console.WriteLine($"   • Segnali filtrati (rischio): {signalsFiltered}");
             Console.WriteLine($"   • Trade aperti: {openTrades.Count} (capitale impegnato €{openTrades.Sum(t => t.EntryPrice * t.PositionSize):F2})");
-            Console.WriteLine($"   • Account value (realizzato): €{_currentAccountValue:F2}");
+            Console.WriteLine($"   • P&L realizzato: €{_realizedPnl:F2}");
 
             if (rejectionCounts.Count > 0)
             {
@@ -327,7 +309,7 @@ public class BotSchedulerService
             // Calcola e mostra metriche giornaliere ogni 10 cicli
             if (_checksPerformed % 10 == 0)
             {
-                var metrics = _riskManager.CalculatePerformanceMetrics(managedTrades, _initialCapital);
+                var metrics = _riskManager.CalculatePerformanceMetrics(managedTrades);
                 if (metrics.TotalTrades > 0)
                 {
                     Console.WriteLine($"\n📊 Metriche cumulative paper trading (dopo {_checksPerformed} cicli):");

@@ -12,10 +12,8 @@ public class SyntheticBacktest
     {
         _initialCapital = initialCapital;
         _riskManager = new RiskManager(
-            initialCapital,
-            riskPercentPerTrade: 0.01m,
+            positionValue: initialCapital * 0.10m,
             rewardRiskRatio: 2.0m,
-            maxPositionSizePercent: 0.10m,
             commissionsPercent: 0.6m,
             taxRate: 0.26m
         );

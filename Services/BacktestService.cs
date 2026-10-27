@@ -44,21 +44,17 @@ public class BacktestService
     private readonly CryptoDataService _dataService;
     private readonly RiskManager _riskManager;
     private readonly RelativeStrengthBreakoutStrategy _strategy;
-    private readonly decimal _initialCapital;
 
-    public BacktestService(decimal initialCapital, decimal rewardRiskRatio = 2.0m, decimal capitalPerTrade = decimal.MaxValue)
+    // Capitale investibile illimitato: ogni trade investe un importo fisso (capitalPerTrade), senza tetto totale
+    public BacktestService(decimal rewardRiskRatio, decimal capitalPerTrade)
     {
-        _initialCapital = initialCapital;
         _dataService = new CryptoDataService();
         _strategy = new RelativeStrengthBreakoutStrategy();
         _riskManager = new RiskManager(
-            initialCapital,
-            riskPercentPerTrade: 0.02m,
+            positionValue: capitalPerTrade,
             rewardRiskRatio: rewardRiskRatio,
-            maxPositionSizePercent: 0.10m,
             commissionsPercent: 0.25m,
-            taxRate: TaxRate,
-            maxPositionValue: capitalPerTrade
+            taxRate: TaxRate
         );
     }
 
@@ -84,14 +80,12 @@ public class BacktestService
             EndDate = endDate,
             Timeframe = timeframe,
             SymbolsAnalyzed = symbols.Count,
-            InitialCapital = _initialCapital,
             Trades = new List<Trade>(),
             AnalysisResults = new List<AnalysisResult>()
         };
 
         int totalSignals = 0;
         int totalFiltered = 0;
-        int skippedForCapital = 0;
         int candleSetsAnalyzed = 0;
         int closedAtEnd = 0;
         int maxConcurrent = 0;
@@ -103,7 +97,7 @@ public class BacktestService
         var historyFrom = startDate - warmup;
 
         // 1) Scarica tutte le candele prima di simulare: il portafoglio va simulato in ordine cronologico
-        //    su tutti i simboli insieme, per sapere in ogni momento quanto capitale è già impegnato.
+        //    su tutti i simboli insieme, per sapere in ogni momento quanto capitale è impegnato.
         var candlesBySymbol = new Dictionary<string, List<Candle>>();
         var indexBySymbol = new Dictionary<string, Dictionary<DateTime, int>>();
         // Il benchmark (BTC) serve alla forza relativa anche se non è tra i simboli da testare
@@ -128,13 +122,13 @@ public class BacktestService
             }
         }
 
-        // 2) Simulazione di portafoglio: equity = capitale iniziale + P&L realizzato (al netto delle commissioni).
-        //    Una nuova posizione si apre solo se il suo valore entra nel capitale non ancora impegnato (niente leva).
+        // 2) Simulazione di portafoglio con capitale illimitato: ogni segnale valido apre una posizione
+        //    di importo fisso; il drawdown è misurato sulla curva del P&L cumulato (realizzato + non realizzato).
         var openPositions = new Dictionary<string, OpenPosition>();
         decimal realizedPnl = 0m;
-        decimal peakEquity = _initialCapital;
-        decimal maxDrawdown = 0m;
+        decimal peakPnl = 0m;
         decimal maxDrawdownAmount = 0m;
+        decimal maxCommitted = 0m;
 
         void ClosePosition(string symbol, decimal exitPrice, DateTime time, bool isWin)
         {
@@ -179,7 +173,6 @@ public class BacktestService
             }
 
             // b) Nuovi segnali (solo dentro la finestra richiesta), dal più forte al più debole:
-            //    quando il capitale non basta per tutti, entrano prima quelli con SignalStrength maggiore
             if (time >= startDate)
             {
                 var candidates = new List<(string symbol, Candle candle, AnalysisResult analysis)>();
@@ -197,28 +190,17 @@ public class BacktestService
                 {
                     totalSignals++;
 
-                    var equity = _initialCapital + realizedPnl;
                     var isLong = analysis.Signal.Contains("BUY");
                     var sizing = _riskManager.CalculatePosition(
                         symbol,
                         candle.Close,
                         0m,
-                        openPositions.Values.Select(p => p.Trade).ToList(),
-                        equity,
                         isLong,
                         analysis.Indicators.GetValueOrDefault("StopLoss"));
 
                     if (!sizing.IsValid)
                     {
                         totalFiltered++;
-                        continue;
-                    }
-
-                    var committed = openPositions.Values.Sum(p => p.Trade.EntryPrice * p.Size);
-                    var positionValue = candle.Close * sizing.PositionSize;
-                    if (committed + positionValue > equity)
-                    {
-                        skippedForCapital++;
                         continue;
                     }
 
@@ -238,6 +220,7 @@ public class BacktestService
                             Symbol = symbol,
                             OpenTime = time,
                             EntryPrice = candle.Close,
+                            PositionSize = sizing.PositionSize,
                             Strategy = analysis.StrategyName,
                             Status = "Open"
                         }
@@ -245,6 +228,7 @@ public class BacktestService
                 }
 
                 maxConcurrent = Math.Max(maxConcurrent, openPositions.Count);
+                maxCommitted = Math.Max(maxCommitted, openPositions.Values.Sum(p => p.Trade.EntryPrice * p.Size));
             }
 
             // c) Equity a valore di mercato (realizzato + non realizzato) per il drawdown massimo
@@ -255,11 +239,9 @@ public class BacktestService
                 var lastClose = candles.LastOrDefault(c => c.Time <= time)?.Close ?? pos.Trade.EntryPrice;
                 unrealized += _riskManager.CalculateProfitAndTaxes(pos.Trade.EntryPrice, lastClose, pos.Size, pos.IsLong).NetProfitBeforeTax;
             }
-            var markedEquity = _initialCapital + realizedPnl + unrealized;
-            peakEquity = Math.Max(peakEquity, markedEquity);
-            if (peakEquity > 0)
-                maxDrawdown = Math.Max(maxDrawdown, (peakEquity - markedEquity) / peakEquity);
-            maxDrawdownAmount = Math.Max(maxDrawdownAmount, peakEquity - markedEquity);
+            var markedPnl = realizedPnl + unrealized;
+            peakPnl = Math.Max(peakPnl, markedPnl);
+            maxDrawdownAmount = Math.Max(maxDrawdownAmount, peakPnl - markedPnl);
         }
 
         // Una posizione ancora aperta a fine periodo viene chiusa al prezzo dell'ultima candela
@@ -271,19 +253,16 @@ public class BacktestService
             closedAtEnd++;
         }
 
-        backtestResult.Metrics = _riskManager.CalculatePerformanceMetrics(
-            backtestResult.Trades,
-            backtestResult.InitialCapital
-        );
+        backtestResult.Metrics = _riskManager.CalculatePerformanceMetrics(backtestResult.Trades);
 
         backtestResult.TotalSignalsGenerated = totalSignals;
         backtestResult.TotalSignalsFiltered = totalFiltered;
         backtestResult.CandleSetsAnalyzed = candleSetsAnalyzed;
         backtestResult.ActualStartDate = earliestTestedCandle;
         backtestResult.ActualEndDate = latestTestedCandle;
-        backtestResult.SignalsSkippedForCapital = skippedForCapital;
         backtestResult.MaxConcurrentPositions = maxConcurrent;
-        backtestResult.MaxDrawdownPercent = maxDrawdown * 100;
+        backtestResult.MaxCapitalCommitted = maxCommitted;
+        backtestResult.TotalCapitalInvested = backtestResult.Trades.Sum(t => t.EntryPrice * t.PositionSize);
         backtestResult.MaxDrawdownAmount = maxDrawdownAmount;
 
         Console.WriteLine($"\n✅ BACKTEST COMPLETATO ({backtestResult.Trades.Count} trade chiusi da {candleSetsAnalyzed} simboli con dati sufficienti, di cui {closedAtEnd} chiusi a fine periodo al prezzo di mercato)");
@@ -315,7 +294,6 @@ public class BacktestService
         var totalCandidati = result.TotalSignalsGenerated;
         if (totalCandidati > 0)
             sb.AppendLine($"   • Tasso di scarto RiskManager: {(decimal)result.TotalSignalsFiltered / totalCandidati * 100:F1}%");
-        sb.AppendLine($"   • Segnali saltati per capitale già impegnato: {result.SignalsSkippedForCapital}");
         sb.AppendLine($"   • Posizioni aperte contemporaneamente (max): {result.MaxConcurrentPositions}");
 
         var pnlBeforeTax = result.Metrics.TotalProfit;
@@ -323,13 +301,17 @@ public class BacktestService
         var netPnl = pnlBeforeTax - taxes;
 
         sb.AppendLine($"\n💼 ACCOUNT METRICS:");
-        sb.AppendLine($"   • Capitale iniziale: €{result.InitialCapital:F2}");
+        sb.AppendLine($"   • Capitale investibile: illimitato");
+        sb.AppendLine($"   • Capitale massimo impegnato contemporaneamente: €{result.MaxCapitalCommitted:F2}");
+        sb.AppendLine($"   • Totale investito (somma dei trade): €{result.TotalCapitalInvested:F2}");
         sb.AppendLine($"   • P&L al netto delle commissioni (prima delle tasse): €{pnlBeforeTax:F2}");
         sb.AppendLine($"   • Tasse ({TaxRate:P0} sul saldo netto positivo del periodo): €{-taxes:F2}");
         sb.AppendLine($"   • P&L netto totale: €{netPnl:F2}");
-        sb.AppendLine($"   • ROI netto: {netPnl / result.InitialCapital * 100:F2}%");
-        sb.AppendLine($"   • Capitale finale (dopo le tasse): €{result.InitialCapital + netPnl:F2}");
-        sb.AppendLine($"   • Drawdown massimo (a valore di mercato): {result.MaxDrawdownPercent:F2}% (€{result.MaxDrawdownAmount:F2})");
+        if (result.MaxCapitalCommitted > 0)
+            sb.AppendLine($"   • ROI netto sul capitale massimo impegnato: {netPnl / result.MaxCapitalCommitted * 100:F2}%");
+        if (result.TotalCapitalInvested > 0)
+            sb.AppendLine($"   • Rendimento netto sul totale investito: {netPnl / result.TotalCapitalInvested * 100:F2}%");
+        sb.AppendLine($"   • Drawdown massimo del P&L (a valore di mercato): €{result.MaxDrawdownAmount:F2}");
 
         sb.AppendLine($"\n🎯 PERFORMANCE METRICS:");
         sb.AppendLine($"   • Trade chiusi: {result.Metrics.TotalTrades}");
@@ -406,12 +388,11 @@ public class BacktestResult
     public string? Timeframe { get; set; }
     public int SymbolsAnalyzed { get; set; }
     public int CandleSetsAnalyzed { get; set; }
-    public decimal InitialCapital { get; set; }
     public int TotalSignalsGenerated { get; set; }
     public int TotalSignalsFiltered { get; set; }
-    public int SignalsSkippedForCapital { get; set; }
     public int MaxConcurrentPositions { get; set; }
-    public decimal MaxDrawdownPercent { get; set; }
+    public decimal MaxCapitalCommitted { get; set; }
+    public decimal TotalCapitalInvested { get; set; }
     public decimal MaxDrawdownAmount { get; set; }
     public List<Trade> Trades { get; set; } = new();
     public List<AnalysisResult> AnalysisResults { get; set; } = new();

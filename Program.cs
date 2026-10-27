@@ -26,12 +26,12 @@ Console.WriteLine(@"
 ╚════════════════════════════════════════════════════════╝
 ");
 
-// Capitale, timeframe e R:R sono letti da appsettings.json (TradingSettings / MarketMonitoring)
+// Importo per trade, timeframe e R:R sono letti da appsettings.json (TradingSettings / MarketMonitoring).
+// Nessun importo totale investibile: il capitale disponibile è illimitato.
 var appSettings = JObject.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json")));
 var tradingSettings = appSettings["TradingSettings"] ?? throw new InvalidOperationException("appsettings.json: sezione TradingSettings mancante");
 var marketSettings = appSettings["MarketMonitoring"] ?? throw new InvalidOperationException("appsettings.json: sezione MarketMonitoring mancante");
-decimal InitialCapital = tradingSettings.Value<decimal?>("InitialCapital") ?? throw new InvalidOperationException("appsettings.json: InitialCapital mancante");
-decimal CapitalPerTrade = tradingSettings.Value<decimal?>("CapitalPerTrade") ?? decimal.MaxValue;
+decimal CapitalPerTrade = tradingSettings.Value<decimal?>("CapitalPerTrade") ?? throw new InvalidOperationException("appsettings.json: CapitalPerTrade mancante");
 decimal RewardRiskRatio =tradingSettings.Value<decimal?>("RewardRiskRatio") ?? throw new InvalidOperationException("appsettings.json: RewardRiskRatio mancante");
 string Timeframe = marketSettings.Value<string>("TimeframeForCandlesticks") ?? throw new InvalidOperationException("appsettings.json: TimeframeForCandlesticks mancante");
 
@@ -46,21 +46,18 @@ if (isBacktestMode)
 }
 else if (isRealBacktestMode)
 {
-    // --backtest-real [giorni | yyyy-MM-dd yyyy-MM-dd] [--timeframe 1h|2h|4h|6h|12h|1d] [--capital €] [--symbols file] [--rr rapporto]
+    // --backtest-real [giorni | yyyy-MM-dd yyyy-MM-dd] [--timeframe 1h|2h|4h|6h|12h|1d] [--symbols file] [--rr rapporto]
     // --rr: take profit come multiplo della distanza dello stop (default RewardRiskRatio)
     // --symbols: elenco di simboli da usare (uno per riga); se il file non esiste viene creato con
     //            l'elenco scaricato, così più backtest possono usare esattamente lo stesso paniere.
     var positional = new List<string>();
     var timeframe = Timeframe;
-    var capital = InitialCapital;
     string? symbolsFile = null;
     var rewardRisk = RewardRiskRatio;
     for (int a = 2; a < cmdArgs.Length; a++)
     {
         if (cmdArgs[a] == "--timeframe" && a + 1 < cmdArgs.Length)
             timeframe = cmdArgs[++a];
-        else if (cmdArgs[a] == "--capital" && a + 1 < cmdArgs.Length)
-            capital = decimal.Parse(cmdArgs[++a], System.Globalization.CultureInfo.InvariantCulture);
         else if (cmdArgs[a] == "--symbols" && a + 1 < cmdArgs.Length)
             symbolsFile = cmdArgs[++a];
         else if (cmdArgs[a] == "--rr" && a + 1 < cmdArgs.Length)
@@ -83,7 +80,7 @@ else if (isRealBacktestMode)
     {
         startDate = endDate.AddDays(-parsedDays);
     }
-    await RunRealBacktestAsync(startDate, endDate, timeframe, capital, symbolsFile, rewardRisk);
+    await RunRealBacktestAsync(startDate, endDate, timeframe, symbolsFile, rewardRisk);
 }
 else
 {
@@ -92,7 +89,7 @@ else
 
 async Task RunLiveAsync()
 {
-    var scheduler = new BotSchedulerService(InitialCapital, Timeframe, RewardRiskRatio, CapitalPerTrade);
+    var scheduler = new BotSchedulerService(Timeframe, RewardRiskRatio, CapitalPerTrade);
 
     Console.WriteLine("Strategia Principale Attiva:");
     Console.WriteLine("  ⭐ Breakout trading su forza relativa (vs BTC)");
@@ -100,11 +97,10 @@ async Task RunLiveAsync()
     Console.WriteLine("     • Filtri: Volume, Candle Body, RSI, Breakout Confirmation");
     Console.WriteLine("     • Modalità: paper trading (segnali e trade simulati, nessun ordine reale)");
     Console.WriteLine("\nImpostazioni:");
-    Console.WriteLine($"  • Capitale Iniziale: €{InitialCapital:F2}");
+    Console.WriteLine("  • Capitale investibile: illimitato");
     Console.WriteLine("  • Intervallo Monitoraggio: 30 minuti");
     Console.WriteLine("  • Max Crypto: 500");
-    Console.WriteLine($"  • Risk per Trade: 2% (€{InitialCapital * 0.02m:F2})");
-    Console.WriteLine($"  • Importo massimo per trade: €{Math.Min(InitialCapital * 0.10m, CapitalPerTrade):F2}");
+    Console.WriteLine($"  • Importo per trade: €{CapitalPerTrade:F2}");
     Console.WriteLine($"  • Take profit: {RewardRiskRatio}x la distanza dello stop");
     Console.WriteLine("  • Report Settimanale: Lunedì 00:00");
     Console.WriteLine("  • Tracking Metriche: Ogni 10 cicli");
@@ -123,11 +119,11 @@ async Task RunLiveAsync()
     }
 }
 
-async Task RunRealBacktestAsync(DateTime startDate, DateTime endDate, string timeframe, decimal capital, string? symbolsFile, decimal rewardRisk)
+async Task RunRealBacktestAsync(DateTime startDate, DateTime endDate, string timeframe, string? symbolsFile, decimal rewardRisk)
 {
-    Console.WriteLine($"\n🔍 MODALITA' BACKTEST SU DATI STORICI REALI ATTIVATA ({startDate:yyyy-MM-dd} → {endDate:yyyy-MM-dd}, {timeframe}, capitale €{capital:F2}, R:R {rewardRisk})\n");
+    Console.WriteLine($"\n🔍 MODALITA' BACKTEST SU DATI STORICI REALI ATTIVATA ({startDate:yyyy-MM-dd} → {endDate:yyyy-MM-dd}, {timeframe}, capitale illimitato, €{CapitalPerTrade:F2} per trade, R:R {rewardRisk})\n");
 
-    var backtestService = new BacktestService(capital, rewardRisk, CapitalPerTrade);
+    var backtestService = new BacktestService(rewardRisk, CapitalPerTrade);
 
     try
     {
