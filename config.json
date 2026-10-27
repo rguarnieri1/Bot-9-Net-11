@@ -15,7 +15,7 @@
     "taxRate": 0.26
   },
   "monitoring": {
-    "intervalMinutes": 60,
+    "intervalMinutes": 10,
     "enableNotifications": true,
     "maxCryptocurrenciesToAnalyze": 500,
     "candleTimeframe": "4h",

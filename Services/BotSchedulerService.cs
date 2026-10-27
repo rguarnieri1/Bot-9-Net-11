@@ -25,7 +25,7 @@ public class BotSchedulerService
     private DateTime? _lastScannedCandle;
     // Il controllo gira spesso rispetto alla chiusura delle candele: la finestra di freschezza (30 min) contiene più tick,
     // così un tick in ritardo/saltato non fa perdere il segnale. La scansione dei simboli avviene una sola volta per candela.
-    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(10);
 
     private readonly decimal _initialCapital;
     private readonly string _timeframe;
@@ -116,7 +116,7 @@ public class BotSchedulerService
 
     private async Task CheckMarketAsync()
     {
-        // Il timer scatta ogni 30 minuti anche se il ciclo precedente non è finito: mai due cicli insieme,
+        // Il timer scatta ogni 10 minuti anche se il ciclo precedente non è finito: mai due cicli insieme,
         // altrimenti lo stesso segnale verrebbe registrato due volte.
         if (Interlocked.Exchange(ref _cycleRunning, 1) == 1)
         {
