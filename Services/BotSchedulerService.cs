@@ -61,7 +61,7 @@ public class BotSchedulerService
         }
 
         _isRunning = true;
-        Console.WriteLine("\n🤖 Bot 8 avviato! (paper trading: nessun ordine reale)");
+        Console.WriteLine("\n🤖 Bot 9 avviato! (paper trading: nessun ordine reale)");
         Console.WriteLine($"📊 Monitoraggio ogni {CheckInterval.TotalMinutes:F0} minuti, candele {_timeframe}...\n");
 
         // Esegui il primo controllo immediatamente
@@ -105,7 +105,7 @@ public class BotSchedulerService
         _isRunning = false;
         _marketCheckTimer?.Dispose();
         _weeklyReportTimer?.Dispose();
-        Console.WriteLine("\n🛑 Bot 8 fermato.");
+        Console.WriteLine("\n🛑 Bot 9 fermato.");
     }
 
     private async Task CheckMarketAsync()
