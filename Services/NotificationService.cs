@@ -2,34 +2,15 @@ using BotCripto.Models;
 
 namespace BotCripto.Services;
 
+// Notifica a schermo dei segnali. I segnali vengono salvati nella tabella bot9.bot9_signals
+// (ReportingService.SaveSignal), non più nel file Logs/signals_yyyy-MM-dd.log.
 public class NotificationService
 {
-    private readonly string _logDirectory;
-
-    public NotificationService()
-    {
-        _logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
-        Directory.CreateDirectory(_logDirectory);
-    }
-
     public Task SendNotificationAsync(AnalysisResult result)
     {
-        var message = FormatNotification(result);
-
-        LogToFile(message);
         ConsoleNotification(result);
 
         return Task.CompletedTask;
-    }
-
-    private void LogToFile(string message)
-    {
-        try
-        {
-            var logFile = Path.Combine(_logDirectory, $"signals_{DateTime.UtcNow:yyyy-MM-dd}.log");
-            File.AppendAllText(logFile, $"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC - {message}\n");
-        }
-        catch { }
     }
 
     private void ConsoleNotification(AnalysisResult result)
@@ -51,10 +32,5 @@ public class NotificationService
         Console.WriteLine(new string('=', 60) + "\n");
 
         Console.Beep(800, 500);
-    }
-
-    private string FormatNotification(AnalysisResult result)
-    {
-        return $"[{result.StrategyName}] {result.Symbol}: {result.Signal} @ ${result.CurrentPrice:F8}";
     }
 }

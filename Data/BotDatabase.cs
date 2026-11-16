@@ -13,6 +13,9 @@ public static class BotDatabase
 
     private static bool _initialized;
 
+    public static BotDbContext CreateContext() =>
+        new(ConnectionString ?? throw new InvalidOperationException("Database non configurato"));
+
     // Chiamato all'avvio del bot (Program.cs): la connessione viene provata una sola volta.
     // Se il database non è raggiungibile il bot continua a funzionare.
     public static bool Initialize()

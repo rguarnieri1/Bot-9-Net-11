@@ -1,4 +1,6 @@
 using Newtonsoft.Json;
+using BotCripto.Data;
+using Microsoft.EntityFrameworkCore;
 using BotCripto.Models;
 using System.Text;
 
@@ -8,6 +10,7 @@ public class ReportingService
 {
     private readonly string _dataDirectory;
     private readonly string _tradesFile;
+    private readonly bool _useDatabase;
     private List<Trade> _trades = new();
 
     public ReportingService()
@@ -15,6 +18,7 @@ public class ReportingService
         _dataDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
         Directory.CreateDirectory(_dataDirectory);
         _tradesFile = Path.Combine(_dataDirectory, "trades.json");
+        _useDatabase = BotDatabase.Initialize();
         LoadTrades();
     }
 
@@ -37,7 +41,7 @@ public class ReportingService
         };
 
         _trades.Add(trade);
-        SaveTrades();
+        SaveTrades(trade, isNew: true);
         return trade;
     }
 
@@ -50,7 +54,7 @@ public class ReportingService
         trade.Profit = profit;
         trade.ProfitPercentage = profitPercentage;
         trade.ExitReason = exitReason;
-        SaveTrades();
+        SaveTrades(trade);
         LogClosedTrade(trade);
     }
 
@@ -64,47 +68,29 @@ public class ReportingService
             trade.Status = "Closed";
             trade.Profit = exitPrice - trade.EntryPrice;
             trade.ProfitPercentage = (trade.Profit.Value / trade.EntryPrice) * 100;
-            SaveTrades();
+            SaveTrades(trade);
             LogClosedTrade(trade);
         }
 
         return Task.CompletedTask;
     }
 
+    // Registra l'operazione chiusa nella tabella bot9.bot9_operazioni_chiuse (solo con il database attivo).
+    // Il file Logs/Operazioni_chiuse.log non viene più scritto.
     private void LogClosedTrade(Trade trade)
     {
-        try
+        if (_useDatabase)
         {
-            var logsDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
-            Directory.CreateDirectory(logsDirectory);
-
-            var logFilePath = Path.Combine(logsDirectory, "Operazioni_chiuse.log");
-
-            var logEntry = new StringBuilder();
-            logEntry.AppendLine($"\n{'═'} OPERAZIONE CHIUSA - {trade.CloseTime:yyyy-MM-dd HH:mm:ss} {'═'}");
-            logEntry.AppendLine($"Simbolo: {trade.Symbol}");
-            logEntry.AppendLine($"Strategia: {trade.Strategy}");
-            if (trade.IsPaperManaged)
+            try
             {
-                logEntry.AppendLine($"Direzione: {(trade.IsLong ? "LONG" : "SHORT")} (paper trading)");
-                logEntry.AppendLine($"Stop Loss: ${trade.StopLoss:F8} | Target: ${trade.TargetPrice:F8}");
-                logEntry.AppendLine($"Motivo uscita: {trade.ExitReason}");
+                using var db = BotDatabase.CreateContext();
+                db.ClosedTrades.Add(ClosedTradeRecord.FromTrade(trade));
+                db.SaveChanges();
             }
-            logEntry.AppendLine($"Prezzo Entrata: ${trade.EntryPrice:F8}");
-            logEntry.AppendLine($"Prezzo Uscita: ${trade.ExitPrice:F8}");
-            logEntry.AppendLine($"Profitto: {trade.Profit:F8}");
-            logEntry.AppendLine($"Percentuale: {trade.ProfitPercentage:F2}%");
-            logEntry.AppendLine($"Stato: {trade.Status}");
-            logEntry.AppendLine($"Apertura: {trade.OpenTime:yyyy-MM-dd HH:mm:ss}");
-            logEntry.AppendLine($"Chiusura: {trade.CloseTime:yyyy-MM-dd HH:mm:ss}");
-            logEntry.AppendLine($"ID: {trade.Id}");
-            logEntry.AppendLine(new string('═', 60));
-
-            File.AppendAllText(logFilePath, logEntry.ToString());
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"⚠️ Errore nel salvataggio del log di chiusura: {ex.Message}");
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️  Errore nel salvataggio dell'operazione chiusa {trade.Symbol} nel database: {ex.GetBaseException().Message}");
+            }
         }
     }
 
@@ -198,33 +184,109 @@ public class ReportingService
         }
     }
 
+    // Con il database attivo le operazioni si leggono da SQL Server (bot9.bot9_trades); al primo avvio
+    // la tabella vuota viene popolata con le operazioni già presenti in Data/trades.json.
     private void LoadTrades()
+    {
+        _trades = LoadTradesFromFile();
+        if (!_useDatabase)
+            return;
+
+        try
+        {
+            using var db = BotDatabase.CreateContext();
+            var dbTrades = db.Trades.AsNoTracking().OrderBy(t => t.OpenTime).ToList();
+            if (dbTrades.Count == 0 && _trades.Count > 0)
+            {
+                db.Trades.AddRange(_trades);
+                db.SaveChanges();
+            }
+            else
+            {
+                _trades = dbTrades;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️  Errore nel caricamento delle operazioni dal database, uso trades.json: {ex.GetBaseException().Message}");
+        }
+    }
+
+    private List<Trade> LoadTradesFromFile()
     {
         try
         {
             if (File.Exists(_tradesFile))
             {
                 var json = File.ReadAllText(_tradesFile);
-                _trades = JsonConvert.DeserializeObject<List<Trade>>(json) ?? new List<Trade>();
+                return JsonConvert.DeserializeObject<List<Trade>>(json) ?? new List<Trade>();
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Errore nel caricamento delle operazioni: {ex.Message}");
-            _trades = new List<Trade>();
         }
+        return new List<Trade>();
     }
 
-    private void SaveTrades()
+    // Salva un segnale nella tabella bot9.bot9_signals (solo con il database attivo)
+    public void SaveSignal(SignalRecord signal)
     {
+        if (!_useDatabase)
+            return;
+
         try
         {
-            var json = JsonConvert.SerializeObject(_trades, Formatting.Indented);
-            File.WriteAllText(_tradesFile, json);
+            using var db = BotDatabase.CreateContext();
+            db.Signals.Add(signal);
+            db.SaveChanges();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Errore nel salvataggio delle operazioni: {ex.Message}");
+            Console.WriteLine($"⚠️  Errore nel salvataggio del segnale {signal.Symbol} nel database: {ex.GetBaseException().Message}");
+        }
+    }
+
+    // Salva un ciclo nella tabella bot9.bot9_cycles (solo con il database attivo)
+    public void SaveCycle(CycleRecord cycle)
+    {
+        if (!_useDatabase)
+            return;
+
+        try
+        {
+            using var db = BotDatabase.CreateContext();
+            db.Cycles.Add(cycle);
+            db.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️  Errore nel salvataggio del ciclo #{cycle.CycleNumber} nel database: {ex.GetBaseException().Message}");
+        }
+    }
+
+    // Salva il trade nel database (insert o update). Data/trades.json non viene più scritto:
+    // senza database il trade resta solo in memoria fino alla chiusura del bot.
+    private void SaveTrades(Trade changed, bool isNew = false)
+    {
+        if (!_useDatabase)
+        {
+            Console.WriteLine($"⚠️  Database non disponibile: l'operazione {changed.Symbol} non viene salvata");
+            return;
+        }
+
+        try
+        {
+            using var db = BotDatabase.CreateContext();
+            if (isNew || !db.Trades.Any(t => t.Id == changed.Id))
+                db.Trades.Add(changed);
+            else
+                db.Trades.Update(changed);
+            db.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️  Errore nel salvataggio dell'operazione {changed.Symbol} nel database: {ex.GetBaseException().Message}");
         }
     }
 
