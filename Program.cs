@@ -104,7 +104,7 @@ async Task RunLiveAsync()
     Console.WriteLine("     • Modalità: paper trading (segnali e trade simulati, nessun ordine reale)");
     Console.WriteLine("\nImpostazioni:");
     Console.WriteLine("  • Capitale investibile: illimitato");
-    Console.WriteLine("  • Intervallo Monitoraggio: 30 minuti");
+    Console.WriteLine("  • Intervallo Monitoraggio: 20 minuti");
     Console.WriteLine("  • Max Crypto: 500");
     Console.WriteLine($"  • Importo per trade: €{CapitalPerTrade:F2}");
     Console.WriteLine($"  • Take profit: {RewardRiskRatio}x la distanza dello stop");

@@ -25,7 +25,7 @@ public class BotSchedulerService
     private DateTime? _lastScannedCandle;
     // Il controllo gira spesso rispetto alla chiusura delle candele: la finestra di freschezza (30 min) contiene più tick,
     // così un tick in ritardo/saltato non fa perdere il segnale. La scansione dei simboli avviene una sola volta per candela.
-    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(20);
 
     private readonly string _timeframe;
     private readonly TimeSpan _timeframeSpan;
