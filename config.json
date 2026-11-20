@@ -11,7 +11,7 @@
     "maxPositionSize": 0.10,
     "maxLeverage": 1.5,
     "rewardRiskRatio": 2.0,
-    "commissionsPercent": 0.8,
+    "commissionsPercent": 1.0,
     "taxRate": 0.26
   },
   "monitoring": {

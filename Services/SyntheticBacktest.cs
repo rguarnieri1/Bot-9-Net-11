@@ -14,7 +14,7 @@ public class SyntheticBacktest
         _riskManager = new RiskManager(
             positionValue: initialCapital * 0.10m,
             rewardRiskRatio: 2.0m,
-            commissionsPercent: 0.6m,
+            commissionsPercent: 1.0m,
             taxRate: 0.26m
         );
         _random = new Random(42);  // Seed per reproducibilità
@@ -155,7 +155,7 @@ public class SyntheticBacktest
         Console.WriteLine($"   • Capital iniziale: €{result.InitialCapital:F2}");
         Console.WriteLine($"   • Total Trades: {result.Metrics.TotalTrades}");
         Console.WriteLine($"   • P&L Lordo: €{result.Metrics.TotalProfit:F2}");
-        Console.WriteLine($"   • Commissioni (0.1%): €{result.Metrics.TotalCommissions:F2}");
+        Console.WriteLine($"   • Commissioni (1%): €{result.Metrics.TotalCommissions:F2}");
         Console.WriteLine($"   • Net P&L: €{result.Metrics.TotalProfit - result.Metrics.TotalCommissions:F2}");
         Console.WriteLine($"   • ROI: {result.Metrics.ROI:F2}%");
 
