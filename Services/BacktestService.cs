@@ -53,7 +53,8 @@ public class BacktestService
         _riskManager = new RiskManager(
             positionValue: capitalPerTrade,
             rewardRiskRatio: rewardRiskRatio,
-            commissionsPercent: 0.40m,
+            buyCommissionPercent: 0.40m,       // 0.40% commissione di acquisto
+            sellCommissionPercent: 0.80m,     // 0.80% commissione di vendita
             taxRate: TaxRate
         );
     }
