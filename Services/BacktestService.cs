@@ -189,6 +189,10 @@ public class BacktestService
 
                 foreach (var (symbol, candle, analysis) in candidates.OrderByDescending(c => c.analysis.Indicators.GetValueOrDefault("SignalStrength")))
                 {
+                    // Tetto di posizioni aperte: i segnali sono già ordinati dal più forte al più debole
+                    if (openPositions.Count >= RiskManager.MaxOpenPositions)
+                        continue;
+
                     totalSignals++;
 
                     var isLong = analysis.Signal.Contains("BUY");

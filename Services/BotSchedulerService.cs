@@ -251,10 +251,22 @@ public class BotSchedulerService
                     }
                 }
 
-                // Dal segnale più forte al più debole (capitale illimitato: entrano tutti i segnali validi)
+                // Dal segnale più forte al più debole, fino al tetto di posizioni aperte (RiskManager.MaxOpenPositions)
                 foreach (var (crypto, signalResult, candles) in candidates.OrderByDescending(c => c.analysis.Indicators.GetValueOrDefault("SignalStrength")))
                 {
                     var isLong = signalResult.Signal.Contains("BUY");
+
+                    if (openTrades.Count >= RiskManager.MaxOpenPositions)
+                    {
+                        var capRecord = SignalRecord.FromAnalysis(signalResult, _timeframe, lastClosedTime!.Value, candles.Last().Close, isLong);
+                        capRecord.Accepted = false;
+                        capRecord.RejectionReason = RejectionLabel(RejectionReason.MaxConcurrentTrades);
+                        _reportingService.SaveSignal(capRecord);
+                        signalsFiltered++;
+                        CountRejection(RejectionLabel(RejectionReason.MaxConcurrentTrades));
+                        continue;
+                    }
+
                     // Ingresso alla chiusura della candela del segnale (come nel backtest), non al prezzo live:
                     // lo stop della strategia è calcolato su quella candela e i controlli stop/target partono dalla successiva.
                     var entryPrice = candles.Last().Close;

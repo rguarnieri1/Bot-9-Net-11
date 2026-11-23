@@ -3,7 +3,7 @@ using BotCripto.Models;
 namespace BotCripto.Strategies;
 
 // Breakout long su forza relativa (candele chiuse, timeframe configurato, tipicamente 1d):
-//  0) regime: BTC (benchmark) sopra la sua EMA50 e con EMA50 in salita
+//  0) regime: BTC (benchmark) sopra la sua EMA200 e con EMA200 in salita
 //  1) trend rialzista: Close > EMA50 e EMA20 > EMA50 con EMA50 in salita
 //  2) forza relativa: la linea RS (Close asset / Close benchmark) è sopra la sua media a RsSmaPeriod
 //     e ha toccato un nuovo massimo a RsHighLookback candele nelle ultime RsRecentBars candele
@@ -17,17 +17,17 @@ public class RelativeStrengthBreakoutStrategy
 
     private const int FastEma = 20;
     private const int SlowEma = 50;
-    private const int BreakoutLookback = 10;     // massimo delle ultime N candele da superare
+    private const int BreakoutLookback = 20;     // massimo delle ultime N candele da superare (backtest 4h/4 anni: meglio 20 che 10)
     private const int RsSmaPeriod = 20;
     private const int RsHighLookback = 30;       // la RS deve essere al massimo di questa finestra...
     private const int RsRecentBars = 10;         // ...in almeno una delle ultime candele
     private const int VolumePeriod = 20;
-    private const decimal VolumeFactor = 1.0m;   // volume breakout >= media
+    private const decimal VolumeFactor = 1.5m;   // volume breakout >= 1,5 x la media
     private const int AtrPeriod = 14;
     private const decimal AtrStopBuffer = 2.5m;  // buffer sotto il minimo del range, in ATR
     private const decimal RsiMax = 80m;
     private const decimal MaxStopPercent = 0.15m; // stop più largo del 15% = setup scartato
-    private const int RegimeEma = 50;          // BTC deve stare sopra la sua EMA, in salita
+    private const int RegimeEma = 200;         // BTC deve stare sopra la sua EMA, in salita (servono >= RegimeEma + 6 candele di BTC)
     private const decimal MinClosePosition = 0.8m; // la chiusura deve stare nel 20% superiore del range della candela
     public const int MinCandles = SlowEma + 20;
 

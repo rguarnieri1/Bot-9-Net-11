@@ -4,6 +4,10 @@ namespace BotCripto.Services;
 
 public class RiskManager
 {
+    // Tetto di posizioni aperte contemporaneamente (backtest 4h/4 anni: con 5 il drawdown si dimezza
+    // e le entrate dei giorni "affollati", che perdevano insieme, vengono scartate). Vale per backtest e live.
+    public const int MaxOpenPositions = 5;
+
     // Nessun importo totale investibile: il capitale disponibile è illimitato.
     // Ogni trade investe un importo fisso in € (positionValue) e non c'è limite al numero di trade aperti.
     private readonly decimal _positionValue;
