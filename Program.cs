@@ -46,6 +46,8 @@ var cmdArgs = Environment.GetCommandLineArgs();
 bool isBacktestMode = cmdArgs.Length > 1 && cmdArgs[1].ToLower() == "--backtest";
 bool isRealBacktestMode = cmdArgs.Length > 1 && cmdArgs[1].ToLower() == "--backtest-real";
 
+bool closedOnly = false;
+
 if (isBacktestMode)
 {
     await RunBacktestAsync();
@@ -66,6 +68,8 @@ else if (isRealBacktestMode)
             timeframe = cmdArgs[++a];
         else if (cmdArgs[a] == "--symbols" && a + 1 < cmdArgs.Length)
             symbolsFile = cmdArgs[++a];
+        else if (cmdArgs[a] == "--closed-only")
+            closedOnly = true;
         else if (cmdArgs[a] == "--rr" && a + 1 < cmdArgs.Length)
             rewardRisk = decimal.Parse(cmdArgs[++a], System.Globalization.CultureInfo.InvariantCulture);
         else
@@ -129,7 +133,7 @@ async Task RunRealBacktestAsync(DateTime startDate, DateTime endDate, string tim
 {
     Console.WriteLine($"\n🔍 MODALITA' BACKTEST SU DATI STORICI REALI ATTIVATA ({startDate:yyyy-MM-dd} → {endDate:yyyy-MM-dd}, {timeframe}, capitale illimitato, €{CapitalPerTrade:F2} per trade, R:R {rewardRisk})\n");
 
-    var backtestService = new BacktestService(rewardRisk, CapitalPerTrade);
+    var backtestService = new BacktestService(rewardRisk, CapitalPerTrade) { ClosedOnly = closedOnly };
 
     try
     {
