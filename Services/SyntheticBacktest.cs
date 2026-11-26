@@ -14,8 +14,8 @@ public class SyntheticBacktest
         _riskManager = new RiskManager(
             positionValue: initialCapital * 0.10m,
             rewardRiskRatio: 2.0m,
-            buyCommissionPercent: 0.40m,       // 0.40% commissione di acquisto
-            sellCommissionPercent: 0.80m,     // 0.80% commissione di vendita
+            buyCommissionPercent: 1.0m,   // 1% commissione di acquisto
+            sellCommissionPercent: 1.0m,  // 1% commissione di vendita
             taxRate: 0.26m
         );
         _random = new Random(42);  // Seed per reproducibilità

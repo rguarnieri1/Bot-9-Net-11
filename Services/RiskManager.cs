@@ -19,8 +19,8 @@ public class RiskManager
     public RiskManager(
         decimal positionValue,
         decimal rewardRiskRatio = 2.0m,
-        decimal buyCommissionPercent = 0.40m,
-        decimal sellCommissionPercent = 0.80m,
+        decimal buyCommissionPercent = 1.0m,   // 1% commissione di acquisto
+        decimal sellCommissionPercent = 1.0m,  // 1% commissione di vendita
         decimal taxRate = 0.26m)
     {
         if (positionValue <= 0)
